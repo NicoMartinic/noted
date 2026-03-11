@@ -1,0 +1,55 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['frontend/**']
+  pull_request:
+    paths: ['frontend/**']
+
+jobs:
+  lint-typecheck-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package.json
+
+      - run: npm install
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Type check (TypeScript)
+        run: npm run typecheck
+
+      - name: Unit & integration tests (Jest)
+        run: npm run test:coverage
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: lint-typecheck-test
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy env file
+        run: cp .env.development.example .env
+
+      - name: Start stack + run e2e via Compose
+        run: docker compose --profile e2e up --build --exit-code-from playwright
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/

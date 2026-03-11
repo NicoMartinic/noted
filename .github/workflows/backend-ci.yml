@@ -1,0 +1,69 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['backend/**']
+  pull_request:
+    paths: ['backend/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18.3-alpine
+        env:
+          POSTGRES_DB: notes_test
+          POSTGRES_USER: notes_user
+          POSTGRES_PASSWORD: notes_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ['5432:5432']
+
+    env:
+      SECRET_KEY: ci-secret-key-for-testing-only-32x
+      DEBUG: "1"
+      DB_NAME: notes_test
+      DB_USER: notes_user
+      DB_PASSWORD: notes_password
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      ALLOWED_HOSTS: localhost
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+      COOKIE_SECURE: "False"
+      COOKIE_SAMESITE: Lax
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+        working-directory: .
+
+      - name: Lint (flake8)
+        run: flake8 .
+        working-directory: backend
+
+      - name: Format check (black)
+        run: black --check .
+        working-directory: backend
+
+      - name: Import order check (isort)
+        run: isort --check-only .
+        working-directory: backend
+
+      - name: Run tests
+        run: pytest
+        working-directory: backend
+
+      - name: Check health endpoint exists
+        run: grep -r 'health_check' apps/core/health.py
+        working-directory: backend
