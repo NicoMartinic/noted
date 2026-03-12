@@ -148,10 +148,12 @@ Copy `.env.development.example` → `.env` for local dev.
 | `CORS_ALLOWED_ORIGINS` | Allowed CORS origins | `http://localhost:3000` |
 | `COOKIE_SECURE` | Secure flag on refresh cookie | `False` |
 | `BACKEND_URL` | Internal URL used by Next.js proxy | `http://backend:8000` |
+| `HTTPS_ENABLED` | Set to `1` once TLS is terminated by nginx/LB | `0` |
 | `SENTRY_DSN` | Backend Sentry DSN (optional) | _(empty)_ |
 | `NEXT_PUBLIC_SENTRY_DSN` | Frontend Sentry DSN (optional) | _(empty)_ |
 
-For production: set `DEBUG=0`, generate a new `SECRET_KEY`, set `COOKIE_SECURE=True` and `COOKIE_SAMESITE=Strict`.
+For production: set `DEBUG=0`, generate a new `SECRET_KEY`, set `COOKIE_SECURE=True`,
+`COOKIE_SAMESITE=Strict`, and `HTTPS_ENABLED=1` only after SSL is configured.
 
 ---
 
@@ -297,7 +299,8 @@ The production stack adds an **nginx** reverse proxy on port 80/443 with:
 - Security headers (X-Frame-Options, HSTS, CSP)
 - Gzip compression
 - Rate limiting on `/api/` routes
-- Ready for SSL — uncomment the HTTPS server block and mount your certificates
+- Ready for SSL — uncomment the HTTPS server block and mount your certificates,
+  then set `HTTPS_ENABLED=1` in `.env.production`
 
 ---
 
@@ -313,6 +316,54 @@ ESLint + tsc (TypeScript).
 
 ---
 
-## License
+## Development Process
 
-MIT
+This project was built iteratively in a series of focused sessions, each with a clear goal:
+
+**Session 1 — Core architecture.** Established the full-stack foundation: Django REST API with JWT authentication, Next.js frontend with Redux + Redux-Saga, and the API proxy pattern that makes HttpOnly cookies work across services without CORS issues.
+
+**Session 2 — Feature completion.** Built out all CRUD surfaces (notes, categories, users), implemented pagination, search, archive, dark mode, and the complete UI. Integrated Formik + Zod for form validation with field-level error propagation from the backend.
+
+**Session 3 — Test infrastructure.** Wrote the full pytest backend suite, Jest unit tests for Redux reducers and Zod schemas, and 15 Playwright end-to-end tests covering every critical user journey. This session involved significant debugging — cold Next.js compilation races, httpOnly cookie path mismatches, React hydration timing, and Django throttle overrides that bypassed global settings.
+
+**Session 4 — Polish and hardening.** Added the 13 improvements: `is_pinned` field and pin endpoint, note ordering API, Markdown editor with preview, category note-count badges, health check endpoint, Sentry integration, nginx reverse proxy, `.env` example files, Makefile, pre-commit hooks, and security headers.
+
+**Session 5 — Production fixes.** Resolved nginx startup failure (upstream directives must live inside `http {}` — solved by using `conf.d/` mounting instead of replacing the root config), and the `SECURE_SSL_REDIRECT` 301 loop on Docker health checks (decoupled SSL redirect from `DEBUG`, gated behind an explicit `HTTPS_ENABLED=1` env var).
+
+---
+
+## Key Design and Technical Decisions
+
+**API proxy over Next.js rewrites.** Next.js `rewrites` in `next.config.js` silently drop `Set-Cookie` response headers, making httpOnly cookie auth impossible. The Route Handler proxy solves this by copying headers explicitly. It also rewrites cookie `Path=` from `/api/auth/` to `/` so the refresh token is sent on all proxy routes, not just auth ones.
+
+**Redux-Saga over React Query or SWR.** This app has complex async flows — token refresh queuing, replaying failed requests after a 401, coordinated side effects between auth and data loading. Sagas express these as readable sequential generator functions. React Query would require custom retry logic and shared interceptors to achieve the same result.
+
+**Timestamp-based e2e test isolation.** Each Playwright test calls `uniqueUser()` which generates credentials like `testuser_1741234567890`. Tests never share state, never need database cleanup between runs, and can run in any order. The trade-off is that test databases accumulate users — acceptable for a dev stack.
+
+**`BACKEND_URL` as runtime env, not build arg.** Next.js `output: 'standalone'` bakes environment into the build. The API proxy reads `process.env.BACKEND_URL` at request time (server-side), so it must be set as a Docker `environment:` variable at runtime — not just a `build.args` entry. Both are needed: the ARG for the build stage, the ENV for the running container.
+
+**`HTTPS_ENABLED` decoupled from `DEBUG`.** `SECURE_SSL_REDIRECT = not DEBUG` seems obvious but creates a redirect loop in production Docker: the health check probe, the internal proxy, and inter-service traffic all use plain HTTP even when the public site is HTTPS. The fix is an explicit opt-in: set `HTTPS_ENABLED=1` only after TLS termination is confirmed at the nginx layer.
+
+**nginx conf.d over full nginx.conf replacement.** The official nginx Docker image's root `nginx.conf` already contains the `http {}` wrapper and includes `conf.d/*.conf` inside it. Mounting a replacement `nginx.conf` that contains `upstream {}` at the top level causes "directive not allowed here" errors. Mounting into `conf.d/` is the correct pattern and requires no changes to the base image behaviour.
+
+**Soft black/isort enforcement via pre-commit, strict in CI.** Local commits are formatted automatically. CI runs `--check` mode and fails the build if formatting diverges. This means contributors are never blocked by style issues locally, but unformatted code cannot merge.
+
+---
+
+## AI Tools Used
+
+This project was developed through an extended series of sessions using **Claude (Anthropic)** as a pair-programming assistant.
+
+**How it was used:**
+
+- **Architecture design.** I designed the overall architecture and discussed key decisions with Claude before implementing them. This included the API proxy pattern, the Redux-Saga approach for token refresh queuing, and the JWT + httpOnly cookie split. Claude helped evaluate trade-offs and refine the implementation details.
+
+- **Code implementation.** I used Claude to help generate and iterate on code based on the requirements I defined. This included Django views and serializers, Redux slices and sagas, React components, Tailwind styling, Docker configuration, nginx configuration, and GitHub Actions workflows.
+
+- **Debugging.** Claude was particularly useful for analyzing complex failures. By sharing Docker logs, pytest output, and Playwright traces, I was able to work through root-cause analysis with Claude. For example, issues like cookies not being sent due to mismatched `Path` values between Django and the proxy routes were identified during these debugging sessions.
+
+- **Iterative development.** Development progressed incrementally across multiple sessions. I provided the evolving codebase and requirements, and Claude assisted with targeted updates and fixes to specific files rather than regenerating large sections of the project.
+
+- **Limitations.** Claude could not execute the code directly, so all fixes had to be tested locally using Docker. This required running the code, capturing logs or errors, and feeding that information back into the conversation. Some issues required several iterations to isolate the root cause, and maintaining awareness of the latest file versions during long debugging sessions was necessary.
+
+---
