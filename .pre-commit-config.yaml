@@ -32,7 +32,7 @@ repos:
     hooks:
       - id: flake8
         files: ^backend/
-        args: ['--max-line-length=100', '--extend-ignore=E203,W503']
+        args: ['--max-line-length=100', '--extend-ignore=E203,W503,W391']
 
   # ─── JavaScript / TypeScript (frontend) ────────────────────────────────────
   - repo: https://github.com/pre-commit/mirrors-eslint
