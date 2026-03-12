@@ -1,4 +1,4 @@
-FROM python:3.12
+FROM python:3.14
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /code
@@ -11,6 +11,9 @@ RUN apt-get update \
 COPY requirements.txt /code/requirements.txt
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+RUN groupadd --system appgroup && useradd --system --gid appgroup appuser \
+    && chown -R appuser:appgroup /code
 
 COPY entrypoint.sh /
 RUN chmod +x /entrypoint.sh
