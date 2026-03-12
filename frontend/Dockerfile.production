@@ -5,8 +5,8 @@ WORKDIR /app
 ARG BACKEND_URL
 ENV BACKEND_URL=${BACKEND_URL}
 
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 RUN npm run build
@@ -26,5 +26,9 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static     ./.next/static
 COPY --from=build /app/public           ./public
 
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /app
+
+USER appuser
 EXPOSE ${PORT}
 CMD ["node", "server.js"]
